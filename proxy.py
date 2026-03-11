@@ -12,10 +12,10 @@ from pathlib import Path
 import urllib.request
 import urllib.error
 
-RIKKA_ACCOUNTS = Path("/home/ubuntu/rikka_accounts.json")
-FREE_ACCOUNTS = Path("/home/ubuntu/free_accounts.json")
-KEYS_FILE = Path("/home/ubuntu/cliproxyapi/keys.json")
-USAGE_FILE = Path("/home/ubuntu/cliproxyapi/usage.json")
+RIKKA_ACCOUNTS = Path("/root/RProxy/rikka_accounts.json")
+FREE_ACCOUNTS = Path("/root/RProxy/free_accounts.json")
+KEYS_FILE = Path("/root/RProxy/keys.json")
+USAGE_FILE = Path("/root/RProxy/usage.json")
 ADMIN_PASSWORD = "200414jc"
 CHATGPT_BASE = "https://chatgpt.com"
 OPENAI_BASE = "https://api.openai.com"
@@ -248,6 +248,9 @@ class ProxyHandler(BaseHTTPRequestHandler):
         if self.path == "/status":
             self._handle_status()
             return
+        if self.path == "/v1":
+            self._json({"object": "api", "status": "ok"})
+            return
         if self.path == "/v1/models":
             self._handle_models()
             return
@@ -271,6 +274,14 @@ class ProxyHandler(BaseHTTPRequestHandler):
     def do_DELETE(self):
         if self.path.startswith("/admin"):
             self._handle_admin(b"")
+            return
+        self._send_error(405, "method not allowed")
+
+    def do_PATCH(self):
+        length = int(self.headers.get("Content-Length", 0))
+        body = self.rfile.read(length) if length else b""
+        if self.path.startswith("/admin"):
+            self._handle_admin(body)
             return
         self._send_error(405, "method not allowed")
 
@@ -478,6 +489,7 @@ class ProxyHandler(BaseHTTPRequestHandler):
                         "name": req.get("name", ""),
                         "quota_usd": float(req.get("quota_usd", 0)),
                         "enabled": req.get("enabled", True),
+                        "pool": req.get("pool", "free"),
                     }
                     save_keys()
                 self._json({"success": True, "key": k})
@@ -493,6 +505,25 @@ class ProxyHandler(BaseHTTPRequestHandler):
                 if removed:
                     save_keys()
             self._json({"success": bool(removed)})
+            return
+
+        # PATCH /admin/keys/<key> — 更新 pool / enabled
+        if self.command == "PATCH" and self.path.startswith("/admin/keys/"):
+            k = self.path[len("/admin/keys/"):]
+            try:
+                req = json.loads(body.decode())
+                with keys_lock:
+                    if k not in keys:
+                        self._send_error(404, "key not found")
+                        return
+                    if "pool" in req:
+                        keys[k]["pool"] = req["pool"]
+                    if "enabled" in req:
+                        keys[k]["enabled"] = req["enabled"]
+                    save_keys()
+                self._json({"success": True})
+            except Exception as e:
+                self._send_error(400, str(e))
             return
 
         self._send_error(404, "not found")
@@ -561,6 +592,7 @@ async function login(){
                     "name": info.get("name", ""),
                     "quota": info.get("quota_usd", 0),
                     "enabled": info.get("enabled", True),
+                    "pool": info.get("pool", "free"),
                     "requests": usage.get(k, {}).get("requests", 0),
                     "input": usage.get(k, {}).get("input_tokens", 0),
                     "output": usage.get(k, {}).get("output_tokens", 0),
@@ -628,6 +660,9 @@ tbody tr:hover td{{background:#fafbfc}}
 .field.grow{{flex:1;min-width:200px}}
 .save-btn{{background:var(--accent);color:#fff;font-family:'DM Sans',sans-serif;font-weight:600;font-size:13px;border:none;padding:9px 20px;border-radius:6px;cursor:pointer;white-space:nowrap;transition:opacity .15s}}
 .save-btn:hover{{opacity:.88}}
+.pool-sel{{background:var(--bg);border:1px solid var(--border2);color:var(--text);font-size:12px;padding:4px 8px;border-radius:5px;cursor:pointer;font-family:'DM Sans',sans-serif}}
+.del-btn{{background:var(--red-light);border:1px solid var(--red);color:var(--red);font-size:11px;font-weight:600;padding:4px 10px;border-radius:5px;cursor:pointer;font-family:'DM Sans',sans-serif;transition:opacity .15s}}
+.del-btn:hover{{opacity:.75}}
 .toast{{position:fixed;bottom:24px;right:24px;background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:12px 18px;font-size:13px;box-shadow:0 4px 16px rgba(0,0,0,.1);opacity:0;transform:translateY(6px);transition:all .2s;pointer-events:none;z-index:100;display:flex;align-items:center;gap:8px}}
 .toast.show{{opacity:1;transform:translateY(0)}}
 .toast.ok{{border-color:var(--green);color:var(--green)}}
@@ -653,8 +688,8 @@ tbody tr:hover td{{background:#fafbfc}}
     </div>
     <table>
       <thead><tr>
-        <th>Name</th><th>Key</th><th>Quota / Cost</th>
-        <th>Requests</th><th>Input</th><th>Output</th><th>Status</th>
+        <th>Name</th><th>Key</th><th>Pool</th><th>Quota / Cost</th>
+        <th>Requests</th><th>Input</th><th>Output</th><th>Status</th><th></th>
       </tr></thead>
       <tbody id="keys-tbody"></tbody>
     </table>
@@ -722,6 +757,15 @@ function toast(msg,type='ok'){{
   t.textContent=msg;t.className='toast show '+type;
   setTimeout(()=>t.className='toast',2200);
 }}
+async function changePool(key,pool){{
+  const r=await fetch('/admin/keys/'+encodeURIComponent(key),{{method:'PATCH',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{pool}})}});
+  if(r.ok)toast('Pool updated ✓');else toast('Error','err');
+}}
+async function deleteKey(key,btn){{
+  if(!confirm('Delete this key?'))return;
+  const r=await fetch('/admin/keys/'+encodeURIComponent(key),{{method:'DELETE'}});
+  if(r.ok){{toast('Deleted');btn.closest('tr').remove();}}else toast('Error','err');
+}}
 async function createKey(){{
   const name=document.getElementById('f-name').value.trim();
   const quota=parseFloat(document.getElementById('f-quota').value)||0;
@@ -731,7 +775,8 @@ async function createKey(){{
   const rand=Array.from(crypto.getRandomValues(new Uint8Array(48))).map(b=>chars[b%chars.length]).join('');
   const key='sk-'+rand;
   const r=await fetch('/admin/keys',{{method:'POST',headers:{{'Content-Type':'application/json'}},
-    body:JSON.stringify({{key,name,quota_usd:quota}})}});
+    const pool=document.getElementById('f-pool').value;
+    body:JSON.stringify({{key,name,quota_usd:quota,pool}})}});
   if(r.ok){{
     toast('Key created ✓');
     document.getElementById('f-name').value='';
