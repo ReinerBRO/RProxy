@@ -738,17 +738,23 @@ function renderRows(){{
       ?`<div class="quota-cell"><div class="quota-nums">💲${{r.cost.toFixed(4)}} / ${{r.quota.toFixed(2)}}</div><div class="quota-track"><div class="quota-fill ${{fc}}" style="width:${{pct.toFixed(1)}}%"></div></div></div>`
       :`<span class="num-cell">💲${{r.cost.toFixed(4)}} / ∞</span>`;
     const copyIcon='<svg viewBox="0 0 24 24"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+    const poolSel=`<select class="pool-sel" onchange="changePool('${{r.key}}',this.value)">
+      <option value="rikka"${{r.pool==='rikka'?' selected':''}}>rikka</option>
+      <option value="free"${{r.pool==='free'?' selected':''}}>free</option>
+    </select>`;
     return `<tr>
       <td class="name-cell">${{r.name||'—'}}</td>
       <td><div class="key-cell">
         <span class="key-mono">${{maskKey(r.key)}}</span>
         <button class="copy-btn" onclick="copyText('${{r.key}}',this)">${{copyIcon}} Copy</button>
       </div></td>
+      <td>${{poolSel}}</td>
       <td>${{qHtml}}</td>
       <td class="num-cell">${{fmt(r.requests)}}</td>
       <td class="num-cell">${{fmt(r.input)}}</td>
       <td class="num-cell">${{fmt(r.output)}}</td>
       <td><span class="status-dot ${{r.enabled?'on':'off'}}">${{r.enabled?'Active':'Disabled'}}</span></td>
+      <td><button class="del-btn" onclick="deleteKey('${{r.key}}',this)">Delete</button></td>
     </tr>`;
   }}).join('');
 }}
@@ -774,8 +780,8 @@ async function createKey(){{
   const chars='ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
   const rand=Array.from(crypto.getRandomValues(new Uint8Array(48))).map(b=>chars[b%chars.length]).join('');
   const key='sk-'+rand;
+  const pool=document.getElementById('f-pool').value;
   const r=await fetch('/admin/keys',{{method:'POST',headers:{{'Content-Type':'application/json'}},
-    const pool=document.getElementById('f-pool').value;
     body:JSON.stringify({{key,name,quota_usd:quota,pool}})}});
   if(r.ok){{
     toast('Key created ✓');
