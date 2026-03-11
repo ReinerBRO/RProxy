@@ -1,0 +1,31 @@
+# Account files with sensitive tokens
+*_accounts.json
+valid_accounts.json
+
+# API keys and usage data
+keys.json
+usage.json
+*.backup
+*.backup.*
+
+# Backup files
+*.bak
+*.bak*
+*.new
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Logs
+*.log
+
+# Data directories
+data/
+codex_tokens/
+codex_tokens.tar.gz
+._codex_tokens
+
+# Docker
+docker-compose.yml
